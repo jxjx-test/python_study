@@ -55,7 +55,7 @@
   source .venv/bin/activate
 - Windows（PowerShell）
   python -m venv .venv
-  .venv\\Scripts\\Activate.ps1
+  .venv\Scripts\Activate.ps1
 
 2) 安装（开发模式）
   pip install -e .
@@ -72,42 +72,50 @@
 - 计算文件 SHA256 哈希
   litepy hash path/to/file
 
-## 内置示例：RSS/Atom 个人数据聚合器
+## 内置示例：RSS/Atom 个人数据聚合器（开箱即用｜支持内置源与自定义源）
 
-已提供轻量级聚合实现（不依赖第三方库，纯标准库）。用于聚合“薅羊毛福利”“新闻热点”“八卦/娱乐”等信息源。
+现在提供两种模式：
+- 数据库模式（推荐）：自带内置源，支持自定义源写入 SQLite，自动去重与 ETag/Last-Modified 缓存，真正开箱即用。
+- 文件源模式（兼容旧方式）：读取 sources.json 或内置示例，适合一次性拉取或脚本拼接。
 
-- 查看源分类及数量
-  litepy feed sources
+内置源覆盖常见的资讯/科技/社区：
+- deals: 什么值得买
+- news: BBC 中文网、路透中文、纽约时报中文网、FT 中文网
+- tech: V2EX、少数派、Solidot、阮一峰博客、爱范儿、OSChina、36 氪
+- entertainment: 煎蛋、Engadget 中文
 
-- 抓取并输出最新条目（自动寻找 ./sources.json 或 ./sources.example.json）
+数据库模式使用方法：
+- 初始化数据库并写入内置源
+  litepy feed init
+- 查看源列表
+  litepy feed list
+- 添加自定义源
+  litepy feed add --url https://example.com/feed.xml --category tech
+- 抓取并输出最新条目（默认使用 data/feeds.db）
   litepy feed fetch --limit 30
-
-- 仅抓取某一分类（deals/news/tech/entertainment）
-  litepy feed fetch --category tech --limit 20
-
-- 仅保留近 24 小时内的内容
+- 仅导出近 24 小时内内容
   litepy feed fetch --since 24 --limit 50
-
-- 输出 JSON 供后续处理
+- 输出 JSON（便于后续处理/推送）
   litepy feed fetch --json > out.json
+- 指定数据库位置（可选）
+  litepy feed fetch --db /path/to/myfeeds.db
 
-自定义源：
-- 在项目根目录复制一份 sources.example.json 为 sources.json，并按需增删 URL。
-- 也可用 --sources 指定任意路径。
-- 可选：使用第三方 RSSHub 为无官方 RSS 的站点提供订阅（稳定性依赖第三方）。
-  例如：
-  - 微博热搜：https://rsshub.app/weibo/search/hot
-  - 知乎热榜：https://rsshub.app/zhihu/hotlist
-  - GitHub 趋势（周）：https://rsshub.app/github/trending/weekly
+文件源模式（无需数据库）：
+- 查看源分类及数量（自动寻找 ./sources.json 或 ./sources.example.json）
+  litepy feed sources
+- 从文件源抓取
+  litepy feed fetch --use-file --limit 30
+- 指定文件
+  litepy feed fetch --use-file --sources ./sources.json --limit 50
 
-内置解析策略：
-- 支持 RSS/Atom 常见字段（title/link/published/updated/description/summary/content）。
-- 自动按发布时间倒序、简单去重（以链接为主）。
-- 非常规源可能需要你替换为其它可用 RSS（如官方/第三方 RSSHub 等）。
+实现要点：
+- 解析：纯标准库 xml.etree + email.utils + ISO-8601，兼容 RSS 与 Atom。
+- 去重：数据库模式按 feed_id + link 去重，重复条目会更新标题/摘要/时间。
+- 缓存：支持 ETag/Last-Modified 条件请求，减少流量与站点压力。
+- 内置源：首次使用数据库模式会自动写入内置源，可随时新增/删除自定义源。
 
 扩展建议：
-- 增加本地存储与去重：将已读链接写入 SQLite/JSON，避免重复推送。
-- 加入计划任务：crontab 或 APScheduler 定时抓取。
+- 增加计划任务：crontab 或 APScheduler 定时抓取。
 - 推送渠道：Webhook/企业微信/飞书/邮件等（可在 CLI 中新增子命令）。
 - 规则过滤：按关键词/正则/黑白名单筛选条目。
 
@@ -115,9 +123,10 @@
 - M1 最小可用版（已提供）
   - CLI: litepy feed fetch/sources，支持 sources.json、自带示例源。
   - 输出文本/JSON，按时间排序、简单去重。
-- M2 持久化与去重
-  - 新增本地 SQLite（标准库 sqlite3），记录已读/已推送项，避免重复。
-  - 新增 --db 路径参数，支持导入导出。
+- M2 持久化与去重（已实现）
+  - 新增本地 SQLite（标准库 sqlite3），记录已抓取条目与源，避免重复。
+  - 支持 ETag/Last-Modified 缓存，减少不必要的下载。
+  - 新增 feed init/add/list/fetch 子命令；默认走数据库模式。
 - M3 过滤与规则
   - 支持包含/排除关键词、正则；按来源/域名过滤。
   - 支持只输出标题命中或正文摘要命中的条目；高亮命中关键词（文本模式）。
@@ -126,7 +135,7 @@
   - 推送集成：Webhook（如企业微信/飞书/钉钉），邮件发送（smtplib）。
 - M5 计划任务与运行时
   - 提供轻量守护进程模式：定时抓取、过滤、推送。
-  - 支持并发抓取、超时/重试、ETag/Last-Modified 缓存以节省带宽。
+  - 支持并发抓取与重试。
 - M6 可扩展性
   - 插件化：每个分类/站点可定义自定义解析器（覆盖标准 RSS 字段）。
   - sources.json 支持标签与权重，便于个性化排序。
@@ -147,7 +156,8 @@
   - litepy/                  示例包（可替换为你的包名）
     - __init__.py
     - cli.py                 命令行入口（argparse 实现）
-    - feeds.py               RSS/Atom 抓取与解析
+    - feeds.py               RSS/Atom 抓取与解析（支持 DB 模式）
+    - store.py               SQLite 存储与查询
 
 建议保持 src 布局（隔离包导入路径，避免测试/脚本误导入）。
 
@@ -177,7 +187,7 @@
 - 若计划发布到 PyPI，完善作者、版权、LICENSE、版本策略等信息。
 
 ## 常见问题（FAQ）
-- 为何没有引入第三方依赖？
+- 为何尽量不引入第三方依赖？
   - 作为模板，尽量保持轻量，避免不必要的耦合。实际项目可按需添加。
 - Windows 与 Linux/Mac 的兼容性？
   - 本模板不依赖平台特性，命令行逻辑均可跨平台运行。
