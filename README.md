@@ -82,8 +82,8 @@
 - 抓取并输出最新条目（自动寻找 ./sources.json 或 ./sources.example.json）
   litepy feed fetch --limit 30
 
-- 仅抓取某一分类（deals/news/entertainment）
-  litepy feed fetch --category news --limit 20
+- 仅抓取某一分类（deals/news/tech/entertainment）
+  litepy feed fetch --category tech --limit 20
 
 - 仅保留近 24 小时内的内容
   litepy feed fetch --since 24 --limit 50
@@ -94,6 +94,11 @@
 自定义源：
 - 在项目根目录复制一份 sources.example.json 为 sources.json，并按需增删 URL。
 - 也可用 --sources 指定任意路径。
+- 可选：使用第三方 RSSHub 为无官方 RSS 的站点提供订阅（稳定性依赖第三方）。
+  例如：
+  - 微博热搜：https://rsshub.app/weibo/search/hot
+  - 知乎热榜：https://rsshub.app/zhihu/hotlist
+  - GitHub 趋势（周）：https://rsshub.app/github/trending/weekly
 
 内置解析策略：
 - 支持 RSS/Atom 常见字段（title/link/published/updated/description/summary/content）。
@@ -105,6 +110,32 @@
 - 加入计划任务：crontab 或 APScheduler 定时抓取。
 - 推送渠道：Webhook/企业微信/飞书/邮件等（可在 CLI 中新增子命令）。
 - 规则过滤：按关键词/正则/黑白名单筛选条目。
+
+## 开发计划（建议路线图）
+- M1 最小可用版（已提供）
+  - CLI: litepy feed fetch/sources，支持 sources.json、自带示例源。
+  - 输出文本/JSON，按时间排序、简单去重。
+- M2 持久化与去重
+  - 新增本地 SQLite（标准库 sqlite3），记录已读/已推送项，避免重复。
+  - 新增 --db 路径参数，支持导入导出。
+- M3 过滤与规则
+  - 支持包含/排除关键词、正则；按来源/域名过滤。
+  - 支持只输出标题命中或正文摘要命中的条目；高亮命中关键词（文本模式）。
+- M4 输出形态与推送
+  - 新增 --format markdown/html；支持生成日报/周报文件。
+  - 推送集成：Webhook（如企业微信/飞书/钉钉），邮件发送（smtplib）。
+- M5 计划任务与运行时
+  - 提供轻量守护进程模式：定时抓取、过滤、推送。
+  - 支持并发抓取、超时/重试、ETag/Last-Modified 缓存以节省带宽。
+- M6 可扩展性
+  - 插件化：每个分类/站点可定义自定义解析器（覆盖标准 RSS 字段）。
+  - sources.json 支持标签与权重，便于个性化排序。
+- M7 运维与发布
+  - 增加日志与指标输出（简单计数/时延统计）。
+  - 打包发布到 PyPI 或提供 Dockerfile。
+- M8 安全与合规
+  - 仅抓取公开 RSS/Atom；避免绕过认证与机器人限制。
+  - 尊重 robots 与站点条款，控制抓取频率。
 
 ## 项目结构
 

@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_fetch = sub_feed.add_parser("fetch", help="抓取并输出最新条目")
     p_fetch.add_argument("--sources", help="sources.json 路径（默认自动寻找或使用内置示例）")
-    p_fetch.add_argument("--category", choices=list(DEFAULT_SOURCES.keys()), help="仅抓取某一分类")
+    p_fetch.add_argument("--category", help="仅抓取某一分类（类别名来自 sources.json 或内置示例）")
     p_fetch.add_argument("--since", type=int, help="仅保留近 N 小时内的内容")
     p_fetch.add_argument("--limit", type=int, help="限制输出条目数量")
     p_fetch.add_argument("--json", action="store_true", help="以 JSON 格式输出")

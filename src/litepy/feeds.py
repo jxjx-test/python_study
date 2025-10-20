@@ -15,18 +15,29 @@ import email.utils as eut
 # 一些内置示例源，便于开箱即用。建议复制到项目根目录的 sources.json 后自行增删。
 DEFAULT_SOURCES: Dict[str, list[str]] = {
     "deals": [
-        # 样例：什么值得买（部分地区可能屏蔽，示例用途）
+        # 什么值得买（好价/资讯综合）
         "https://www.smzdm.com/feed",
     ],
     "news": [
+        # 综合新闻（部分为海外媒体，网络环境可能影响访问）
+        "http://feeds.bbci.co.uk/zhongwen/simp/rss.xml",  # BBC 中文网
+        "http://feeds.reuters.com/reuters/CHINAnews",     # 路透中文
+        "https://cn.nytimes.com/rss/",                    # 纽约时报中文网（可能涉及付费墙）
+        "http://www.ftchinese.com/rss/news",              # FT 中文网（部分内容需订阅）
+    ],
+    "tech": [
+        # 科技/社区/技术博客
         "https://www.v2ex.com/index.xml",
         "https://sspai.com/feed",
         "https://www.solidot.org/index.rss",
         "http://www.ruanyifeng.com/blog/atom.xml",
         "https://www.ifanr.com/feed",
+        "https://www.oschina.net/news/rss",
+        "https://36kr.com/feed",
     ],
     "entertainment": [
-        # 可替换为你常看的娱乐/热点来源（部分站点可能无官方 RSS）
+        # 娱乐/数码/热点（可替换为你的关注来源）
+        "https://jandan.net/feed",
         "https://chinese.engadget.com/rss.xml",
     ],
 }
@@ -123,7 +134,7 @@ def parse_feed(xml_bytes: bytes, feed_url: str) -> List[FeedItem]:
         else:
             link = _child_text(node, ("link",))
 
-        summary = _child_text(node, ("summary", "description", "content"))
+        summary = _child_text(node, ("summary", "description", "content", "encoded"))
         pub = (
             _child_text(node, ("published",))
             or _child_text(node, ("updated",))
