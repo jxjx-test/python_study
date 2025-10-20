@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import sys
+from dataclasses import asdict
 from typing import Iterable
+
+from .feeds import (
+    DEFAULT_SOURCES,
+    aggregate as aggregate_feeds,
+    format_items_text as format_feed_items,
+    load_sources_file,
+)
 
 
 def slugify(text: str) -> str:
@@ -68,6 +77,47 @@ def cmd_hash(args: argparse.Namespace) -> int:
     return code
 
 
+# ------------------ Feed 聚合子命令 ------------------
+
+def _auto_sources_path() -> str | None:
+    for candidate in ("sources.json", "sources.example.json"):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def cmd_feed_fetch(args: argparse.Namespace) -> int:
+    path = args.sources or _auto_sources_path()
+    sources = load_sources_file(path)
+
+    items = aggregate_feeds(
+        sources,
+        category=args.category,
+        since_hours=args.since,
+        limit=args.limit,
+    )
+
+    if args.json:
+        payload = [asdict(i) | {"published": (i.published.isoformat() if i.published else None)} for i in items]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(format_feed_items(items))
+    return 0
+
+
+def cmd_feed_sources(args: argparse.Namespace) -> int:
+    path = args.sources or _auto_sources_path()
+    sources = load_sources_file(path)
+    print("当前源分类及数量：")
+    for k, v in sources.items():
+        print(f"- {k}: {len(v)} 条源")
+    if not path:
+        print("\n提示：在项目根目录创建 sources.json 覆盖内置示例，或复制 sources.example.json 自定义。")
+    else:
+        print(f"\n已使用配置文件: {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="litepy",
@@ -87,6 +137,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_hash = sub.add_parser("hash", help="输出文件的 SHA256 哈希")
     p_hash.add_argument("paths", nargs="+", help="一个或多个文件路径")
     p_hash.set_defaults(func=cmd_hash)
+
+    # feed 子命令
+    p_feed = sub.add_parser("feed", help="RSS/Atom 聚合工具")
+    sub_feed = p_feed.add_subparsers(dest="feed_cmd", required=True)
+
+    p_fetch = sub_feed.add_parser("fetch", help="抓取并输出最新条目")
+    p_fetch.add_argument("--sources", help="sources.json 路径（默认自动寻找或使用内置示例）")
+    p_fetch.add_argument("--category", choices=list(DEFAULT_SOURCES.keys()), help="仅抓取某一分类")
+    p_fetch.add_argument("--since", type=int, help="仅保留近 N 小时内的内容")
+    p_fetch.add_argument("--limit", type=int, help="限制输出条目数量")
+    p_fetch.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+    p_fetch.set_defaults(func=cmd_feed_fetch)
+
+    p_sources = sub_feed.add_parser("sources", help="查看源配置")
+    p_sources.add_argument("--sources", help="sources.json 路径")
+    p_sources.set_defaults(func=cmd_feed_sources)
 
     return parser
 

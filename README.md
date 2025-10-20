@@ -29,9 +29,17 @@
 5. Markdown 小助手
    - 将标题自动生成目录、slug，或批量补充 Front Matter。
    - 结合静态站点工作流，提升写作与发布效率。
-6. 小型个人数据聚合器
-   - 抓取/合并常用数据（RSS、GitHub Star、书签），导出统一 JSON。
-   - 做成命令行 + API 双模式，便于嵌入到其他工具链。
+6. 小型个人数据聚合器（内置示例，见下文）
+   - 抓取/合并常用数据（RSS/Atom），导出统一 JSON 或文本。
+   - 命令行 + 可嵌入脚本的库函数，两用。
+
+更多选题灵感：
+- 日志裁剪/敏感信息脱敏工具
+- 目录图片批量压缩/转 WebP（可选调用系统工具）
+- 简易短链接批量生成器（本地维护映射）
+- Markdown/笔记索引器：给笔记库生成索引与反向链接
+- 轻量 API Mock Server（内置几条路由，读取 JSON 响应）
+- 网页快照归档（定期拉取页面保存 HTML/PDF 哈希）
 
 你可以先挑一个最小可用场景（MVP）开始，后续逐步演进。
 
@@ -64,15 +72,51 @@
 - 计算文件 SHA256 哈希
   litepy hash path/to/file
 
+## 内置示例：RSS/Atom 个人数据聚合器
+
+已提供轻量级聚合实现（不依赖第三方库，纯标准库）。用于聚合“薅羊毛福利”“新闻热点”“八卦/娱乐”等信息源。
+
+- 查看源分类及数量
+  litepy feed sources
+
+- 抓取并输出最新条目（自动寻找 ./sources.json 或 ./sources.example.json）
+  litepy feed fetch --limit 30
+
+- 仅抓取某一分类（deals/news/entertainment）
+  litepy feed fetch --category news --limit 20
+
+- 仅保留近 24 小时内的内容
+  litepy feed fetch --since 24 --limit 50
+
+- 输出 JSON 供后续处理
+  litepy feed fetch --json > out.json
+
+自定义源：
+- 在项目根目录复制一份 sources.example.json 为 sources.json，并按需增删 URL。
+- 也可用 --sources 指定任意路径。
+
+内置解析策略：
+- 支持 RSS/Atom 常见字段（title/link/published/updated/description/summary/content）。
+- 自动按发布时间倒序、简单去重（以链接为主）。
+- 非常规源可能需要你替换为其它可用 RSS（如官方/第三方 RSSHub 等）。
+
+扩展建议：
+- 增加本地存储与去重：将已读链接写入 SQLite/JSON，避免重复推送。
+- 加入计划任务：crontab 或 APScheduler 定时抓取。
+- 推送渠道：Webhook/企业微信/飞书/邮件等（可在 CLI 中新增子命令）。
+- 规则过滤：按关键词/正则/黑白名单筛选条目。
+
 ## 项目结构
 
 - README.md                  项目说明（本文件）
 - pyproject.toml             构建与打包配置（setuptools + PEP 621）
 - .gitignore                 Git 忽略配置
+- sources.example.json       聚合器示例源配置（复制为 sources.json 自定义）
 - src/
   - litepy/                  示例包（可替换为你的包名）
     - __init__.py
     - cli.py                 命令行入口（argparse 实现）
+    - feeds.py               RSS/Atom 抓取与解析
 
 建议保持 src 布局（隔离包导入路径，避免测试/脚本误导入）。
 
