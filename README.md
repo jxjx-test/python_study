@@ -125,6 +125,12 @@
 - 指定数据库位置（可选）
   litepy feed fetch --db /path/to/myfeeds.db
 
+数据库支持：SQLite / MySQL（计划）
+- 目前已实现：SQLite（默认，无需安装任何数据库服务。Python 标准库 sqlite3 即可，数据库文件默认在 data/feeds.db）。
+- 只有 MySQL 也没关系：你无需安装或运行 SQLite 服务器，它是嵌入式单文件数据库，克隆仓库后即可使用。
+- MySQL 支持（计划中）：后续将提供可选的 MySQL 后端（保持表结构一致），并通过环境变量 LITEPY_DB_URL 或命令行参数 --db-url 指定，例如 mysql+pymysql://user:pass@host:3306/dbname。该功能尚未发布，进度见下方“路线图”，欢迎在 issues 中反馈需求优先级。
+- 数据迁移（预告）：将提供从 SQLite 导出并导入 MySQL 的迁移脚本，避免数据丢失。
+
 文件源模式（无需数据库）：
 - 查看源分类及数量（自动寻找 ./sources.json 或 ./sources.example.json）
   litepy feed sources
@@ -212,6 +218,13 @@
 - 若计划发布到 PyPI，完善作者、版权、LICENSE、版本策略等信息。
 
 ## 常见问题（FAQ）
+- 现在项目能用了吗？还是得计划执行完才行？
+  - 可以直接使用。M1-M2 已落地：你可以在“快速开始”和“内置示例”章节按命令运行，默认使用 SQLite 持久化并自动去重。后续 M3+ 是增强功能，不影响基本可用性。
+- 我没有 SQLite 数据库，只有 MySQL，能用吗？
+  - 可以。你不需要安装任何 SQLite 服务器，Python 自带 sqlite3，默认会在项目 data/feeds.db 创建一个文件型数据库即可使用。
+  - 如果你所在环境缺少底层 SQLite 动态库（极少见），请安装系统包（如 Debian/Ubuntu：sudo apt-get install libsqlite3-0 libsqlite3-dev），或等待后续的 MySQL 可选后端。
+- 为什么 README 里没有“如何运行个人数据聚合器”的说明？
+  - 相关说明已在“使用说明（TL;DR）”与“内置示例：RSS/Atom 个人数据聚合器”两处提供，包含数据库模式与文件源模式的完整命令示例（init/list/add/fetch 等）。
 - 为何尽量不引入第三方依赖？
   - 作为模板，尽量保持轻量，避免不必要的耦合。实际项目可按需添加。
 - Windows 与 Linux/Mac 的兼容性？
