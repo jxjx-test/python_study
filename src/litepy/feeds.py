@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import email.utils as eut
 import json
+import gzip
 import ssl
 import sys
 import time
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 # 一些内置示例源，便于开箱即用。建议复制到项目根目录的 sources.json 后自行增删。
 DEFAULT_SOURCES: Dict[str, list[str]] = {
@@ -20,17 +22,17 @@ DEFAULT_SOURCES: Dict[str, list[str]] = {
     ],
     "news": [
         # 综合新闻（部分为海外媒体，网络环境可能影响访问）
-        "http://feeds.bbci.co.uk/zhongwen/simp/rss.xml",  # BBC 中文网
-        "http://feeds.reuters.com/reuters/CHINAnews",  # 路透中文
+        "https://feeds.bbci.co.uk/zhongwen/simp/rss.xml",  # BBC 中文网
+        "https://feeds.reuters.com/reuters/CHINAnews",  # 路透中文
         "https://cn.nytimes.com/rss/",  # 纽约时报中文网（可能涉及付费墙）
-        "http://www.ftchinese.com/rss/news",  # FT 中文网（部分内容需订阅）
+        "https://www.ftchinese.com/rss/news",  # FT 中文网（部分内容需订阅）
     ],
     "tech": [
         # 科技/社区/技术博客
         "https://www.v2ex.com/index.xml",
         "https://sspai.com/feed",
         "https://www.solidot.org/index.rss",
-        "http://www.ruanyifeng.com/blog/atom.xml",
+        "https://www.ruanyifeng.com/blog/atom.xml",
         "https://www.ifanr.com/feed",
         "https://www.oschina.net/news/rss",
         "https://36kr.com/feed",
@@ -94,7 +96,7 @@ def _parse_date(value: Optional[str]) -> Optional[datetime]:
 
 # ------------- 抓取与解析 -------------
 
-_UA = "litepy/0.2 (+https://example.com)"
+_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36"
 
 
 def fetch_url(
@@ -109,10 +111,15 @@ def fetch_url(
     - 支持条件请求：If-None-Match/If-Modified-Since
     - status 200 返回 body，status 304 返回 None
     """
+    parsed = urlparse(url)
+    referer = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else None
     headers = {
         "User-Agent": _UA,
         "Accept": "application/rss+xml, application/atom+xml, text/xml;q=0.9, */*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
+    if referer:
+        headers["Referer"] = referer
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:
@@ -125,7 +132,32 @@ def fetch_url(
             status = getattr(resp, "status", 200)
             data = resp.read()
             hdrs = {k.title(): v for k, v in resp.headers.items()}
+            enc = hdrs.get("Content-Encoding", "").lower()
+            if data and enc:
+                if "gzip" in enc:
+                    try:
+                        data = gzip.decompress(data)
+                    except Exception:
+                        pass
+                elif "deflate" in enc:
+                    try:
+                        import zlib
+                        try:
+                            data = zlib.decompress(data, -zlib.MAX_WBITS)
+                        except Exception:
+                            data = zlib.decompress(data)
+                    except Exception:
+                        pass
             return status, data, hdrs
+    except HTTPError as e:  # 处理 304 等非 200 状态
+        if getattr(e, "code", None) == 304:
+            try:
+                hdrs = {k.title(): v for k, v in e.headers.items()}
+            except Exception:
+                hdrs = {}
+            return 304, None, hdrs
+        print(f"[warn] 抓取失败: {url} -> {e}", file=sys.stderr)
+        raise
     except Exception as exc:  # noqa: BLE001
         print(f"[warn] 抓取失败: {url} -> {exc}", file=sys.stderr)
         raise
@@ -246,22 +278,34 @@ def aggregate(
     for c in cats:
         urls.extend(sources.get(c, []))
 
+    # 去重避免重复 url
+    urls = list(dict.fromkeys(urls))
+
     seen: set[str] = set()
     items: List[FeedItem] = []
 
-    for url in urls:
+    # 并发抓取以提升速度（标准库线程池）
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def worker(u: str) -> List[FeedItem]:
         try:
-            data = fetch_url_bytes(url)
-            parsed = parse_feed(data, url)
+            data = fetch_url_bytes(u)
+            return parse_feed(data, u)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] 抓取失败: {u} -> {exc}", file=sys.stderr)
+            return []
+
+    max_workers = min(8, max(1, len(urls)))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(worker, u): u for u in urls}
+        for fut in as_completed(futures):
+            parsed = fut.result()
             for it in parsed:
                 key = it.link or f"{it.title}|{it.published}"
                 if key in seen:
                     continue
                 seen.add(key)
                 items.append(it)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[warn] 抓取失败: {url} -> {exc}", file=sys.stderr)
-            continue
 
     # 过滤时间窗口
     if since_hours:
@@ -326,10 +370,26 @@ def crawl_into_db(db_conn) -> int:
 
     feeds = store.list_feeds(db_conn, active_only=True)
     total_updates = 0
-    for f in feeds:
+
+    # 并发抓取（网络 IO），串行写库（避免 SQLite 线程安全问题）
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def worker(f):
         try:
             status, body, hdrs = fetch_url(f.url, etag=f.etag, last_modified=f.last_modified)
-        except Exception:
+            return (f, status, body, hdrs, None)
+        except Exception as exc:  # noqa: BLE001
+            return (f, None, None, {}, exc)
+
+    results = []
+    max_workers = min(8, max(1, len(feeds)))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = [ex.submit(worker, f) for f in feeds]
+        for fut in as_completed(futs):
+            results.append(fut.result())
+
+    for f, status, body, hdrs, exc in results:
+        if exc is not None:
             continue
         # 304 Not Modified
         if status == 304:
@@ -355,7 +415,6 @@ def crawl_into_db(db_conn) -> int:
             last_checked_iso=_iso_now(),
         )
         # 写入条目
-        before = time.time()
         for it in items:
             pub_iso = it.published.replace(microsecond=0).isoformat() if it.published else None
             store.upsert_item(
