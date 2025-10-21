@@ -12,6 +12,31 @@
 - 轻量：尽量零依赖或少依赖，降低维护成本与打包复杂度。
 - 实用：聚焦实际需求，沉淀可复用的小工具或组件。
 
+## 使用说明（TL;DR）
+- 环境要求：Python 3.9+
+- 安装与验证：
+  - 创建虚拟环境并激活（见下方“快速开始”）
+  - 安装：pip install -e .
+  - 验证：litepy --help
+- 常用命令：
+  - litepy hello [name]
+  - litepy slug "文本"
+  - litepy hash path/to/file
+- RSS/Atom 聚合器：
+  - 推荐数据库模式（自动去重与缓存）
+    - 初始化：litepy feed init
+    - 列出源：litepy feed list
+    - 抓取：litepy feed fetch --limit 30
+    - 仅导出近 24 小时：litepy feed fetch --since 24 --limit 50
+    - JSON 输出：litepy feed fetch --json > out.json
+    - 指定数据库：litepy feed fetch --db /path/to/myfeeds.db
+    - 添加自定义源：litepy feed add --url https://example.com/feed.xml --category tech
+  - 文件源模式（无需数据库）：
+    - 查看内置/文件源：litepy feed sources
+    - 从文件源抓取：litepy feed fetch --use-file --limit 30
+    - 指定文件：litepy feed fetch --use-file --sources ./sources.json --limit 50
+- 默认数据库位置：data/feeds.db（自动创建）
+
 ## 推荐的项目选题（可直接基于本模板实现）
 以下都是能在短时间内上线的小而美工具，便于渐进式迭代：
 1. 本地文件整理器
