@@ -3,16 +3,16 @@
     "https://www.smzdm.com/feed"
   ],
   "news": [
-    "http://feeds.bbci.co.uk/zhongwen/simp/rss.xml",
-    "http://feeds.reuters.com/reuters/CHINAnews",
+    "https://feeds.bbci.co.uk/zhongwen/simp/rss.xml",
+    "https://feeds.reuters.com/reuters/CHINAnews",
     "https://cn.nytimes.com/rss/",
-    "http://www.ftchinese.com/rss/news"
+    "https://www.ftchinese.com/rss/news"
   ],
   "tech": [
     "https://www.v2ex.com/index.xml",
     "https://sspai.com/feed",
     "https://www.solidot.org/index.rss",
-    "http://www.ruanyifeng.com/blog/atom.xml",
+    "https://www.ruanyifeng.com/blog/atom.xml",
     "https://www.ifanr.com/feed",
     "https://www.oschina.net/news/rss",
     "https://36kr.com/feed"
