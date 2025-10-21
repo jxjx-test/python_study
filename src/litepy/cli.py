@@ -14,7 +14,10 @@ from .feeds import (
     aggregate as aggregate_feeds,
     format_items_text as format_feed_items,
     load_sources_file,
+    crawl_into_db,
+    export_items_from_db,
 )
+from . import store
 
 
 def slugify(text: str) -> str:
@@ -86,17 +89,48 @@ def _auto_sources_path() -> str | None:
     return None
 
 
+def _default_db_path() -> str:
+    return store.DEFAULT_DB_PATH
+
+
+def _ensure_db_ready(db_path: str) -> store.sqlite3.Connection:
+    conn = store.get_conn(db_path)
+    store.init_db(conn)
+    store.ensure_seed_builtin(conn, DEFAULT_SOURCES)
+    return conn
+
+
 def cmd_feed_fetch(args: argparse.Namespace) -> int:
-    path = args.sources or _auto_sources_path()
-    sources = load_sources_file(path)
+    # 优先：显式使用文件源
+    if args.use_file or args.sources:
+        path = args.sources or _auto_sources_path()
+        sources = load_sources_file(path)
+        items = aggregate_feeds(
+            sources,
+            category=args.category,
+            since_hours=args.since,
+            limit=args.limit,
+        )
+        if args.json:
+            payload = [asdict(i) | {"published": (i.published.isoformat() if i.published else None)} for i in items]
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(format_feed_items(items))
+        if not path:
+            print("\n[info] 未找到 sources.json，已使用内置示例源。你也可以使用数据库模式持久化并自动去重。", file=sys.stderr)
+        return 0
 
-    items = aggregate_feeds(
-        sources,
-        category=args.category,
-        since_hours=args.since,
-        limit=args.limit,
-    )
-
+    # 默认：数据库模式（开箱即用，自动初始化并注入内置源）
+    db_path = args.db or _default_db_path()
+    conn = _ensure_db_ready(db_path)
+    # 抓取更新
+    crawl_into_db(conn)
+    # 按分类过滤（如有）
+    feed_ids = None
+    if args.category:
+        feed_ids = [f.id for f in store.list_feeds(conn, active_only=True) if f.category == args.category]
+    # 导出
+    items = export_items_from_db(conn, since_hours=args.since, limit=args.limit, feed_ids=feed_ids)
     if args.json:
         payload = [asdict(i) | {"published": (i.published.isoformat() if i.published else None)} for i in items]
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -115,6 +149,39 @@ def cmd_feed_sources(args: argparse.Namespace) -> int:
         print("\n提示：在项目根目录创建 sources.json 覆盖内置示例，或复制 sources.example.json 自定义。")
     else:
         print(f"\n已使用配置文件: {path}")
+    return 0
+
+
+def cmd_feed_init(args: argparse.Namespace) -> int:
+    db_path = args.db or _default_db_path()
+    conn = store.get_conn(db_path)
+    store.init_db(conn)
+    store.ensure_seed_builtin(conn, DEFAULT_SOURCES)
+    print(f"已初始化数据库，并写入内置源: {db_path}")
+    return 0
+
+
+def cmd_feed_add(args: argparse.Namespace) -> int:
+    db_path = args.db or _default_db_path()
+    conn = _ensure_db_ready(db_path)
+    feed_id = store.add_feed(conn, args.url, args.category, is_builtin=False)
+    print(f"已添加源: id={feed_id} url={args.url} category={args.category or ''}")
+    # 立即抓取一次
+    crawl_into_db(conn)
+    print("已完成一次抓取。")
+    return 0
+
+
+def cmd_feed_list(args: argparse.Namespace) -> int:
+    db_path = args.db or _default_db_path()
+    conn = _ensure_db_ready(db_path)
+    feeds = store.list_feeds(conn, active_only=not args.all)
+    print(f"共 {len(feeds)} 个源：")
+    for f in feeds:
+        flag = "*" if f.is_builtin else "-"
+        cat = f.category or ""
+        title = f.title or "(未知)"
+        print(f"{flag} [{cat}] {title}  -> {f.url}")
     return 0
 
 
@@ -143,16 +210,33 @@ def build_parser() -> argparse.ArgumentParser:
     sub_feed = p_feed.add_subparsers(dest="feed_cmd", required=True)
 
     p_fetch = sub_feed.add_parser("fetch", help="抓取并输出最新条目")
-    p_fetch.add_argument("--sources", help="sources.json 路径（默认自动寻找或使用内置示例）")
-    p_fetch.add_argument("--category", help="仅抓取某一分类（类别名来自 sources.json 或内置示例）")
+    p_fetch.add_argument("--sources", help="sources.json 路径（默认使用数据库模式；若提供则使用文件源模式）")
+    p_fetch.add_argument("--db", help="SQLite 数据库路径（默认 data/feeds.db）")
+    p_fetch.add_argument("--use-file", action="store_true", help="强制使用文件源（忽略数据库）")
+    p_fetch.add_argument("--category", help="仅抓取某一分类（文件源模式下有效；数据库模式下按此过滤输出）")
     p_fetch.add_argument("--since", type=int, help="仅保留近 N 小时内的内容")
     p_fetch.add_argument("--limit", type=int, help="限制输出条目数量")
     p_fetch.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     p_fetch.set_defaults(func=cmd_feed_fetch)
 
-    p_sources = sub_feed.add_parser("sources", help="查看源配置")
+    p_sources = sub_feed.add_parser("sources", help="查看内置/文件源配置")
     p_sources.add_argument("--sources", help="sources.json 路径")
     p_sources.set_defaults(func=cmd_feed_sources)
+
+    p_init = sub_feed.add_parser("init", help="初始化数据库并写入内置源")
+    p_init.add_argument("--db", help="SQLite 数据库路径（默认 data/feeds.db）")
+    p_init.set_defaults(func=cmd_feed_init)
+
+    p_add = sub_feed.add_parser("add", help="添加自定义源到数据库")
+    p_add.add_argument("--db", help="SQLite 数据库路径（默认 data/feeds.db）")
+    p_add.add_argument("--url", required=True, help="RSS/Atom 源 URL")
+    p_add.add_argument("--category", help="可选分类名")
+    p_add.set_defaults(func=cmd_feed_add)
+
+    p_list = sub_feed.add_parser("list", help="列出数据库中的源")
+    p_list.add_argument("--db", help="SQLite 数据库路径（默认 data/feeds.db）")
+    p_list.add_argument("--all", action="store_true", help="包含未激活的源")
+    p_list.set_defaults(func=cmd_feed_list)
 
     return parser
 
